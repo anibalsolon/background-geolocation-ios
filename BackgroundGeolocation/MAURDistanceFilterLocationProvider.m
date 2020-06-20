@@ -185,19 +185,31 @@ enum {
         isAcquiringStationaryLocation = NO;
         [self stopMonitoringForRegion];
         [self stopMonitoringSignificantLocationChanges];
+        
+        aquireStartTime = [NSDate date];
+        
+        // Crank up the GPS power temporarily to get a good fix on our current location
+        [self stopUpdatingLocation];
+        locationManager.distanceFilter = kCLDistanceFilterNone;
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation;
+        [self startUpdatingLocation];
+        
     } else if (operationMode == MAURBackgroundMode) {
         isAcquiringSpeed = NO;
-        isAcquiringStationaryLocation = YES;
-        [self startMonitoringSignificantLocationChanges];
+        //isAcquiringStationaryLocation = YES;
+        //[self startMonitoringSignificantLocationChanges];
+        
+        [self stopUpdatingLocation];
+        //isAcquiringStationaryLocation = YES;
+
+        MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:locationManager.location];
+        stationaryLocation.radius = _config.stationaryRadius;
+        stationaryLocation.time = stationarySince;
+        [self startMonitoringStationaryRegion:stationaryLocation];
+        
     }
     
-    aquireStartTime = [NSDate date];
     
-    // Crank up the GPS power temporarily to get a good fix on our current location
-    [self stopUpdatingLocation];
-    locationManager.distanceFilter = kCLDistanceFilterNone;
-    locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation;
-    [self startUpdatingLocation];
 }
 
 - (void) locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
@@ -325,7 +337,16 @@ enum {
         AudioServicesPlaySystemSound (exitRegionSound);
         [self notify:@"Exit stationary region"];
     }
-    [self switchMode:operationMode];
+    //[self switchMode:operationMode];
+    
+    
+    MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:manager.location];
+    stationaryLocation.radius = _config.stationaryRadius;
+    stationaryLocation.time = [NSDate date];
+    [self startMonitoringStationaryRegion:stationaryLocation];
+    // fire onStationary @event for Javascript.
+//    [super.delegate onStationaryChanged:stationaryLocation];
+    [super.delegate onLocationChanged:stationaryLocation];
 }
 
 - (void) locationManagerDidPauseLocationUpdates:(CLLocationManager *)manager
@@ -424,7 +445,15 @@ enum {
 - (void) onTerminate
 {
     if (isStarted && !_config.stopOnTerminate) {
-        [locationManager startMonitoringSignificantLocationChanges];
+        //[locationManager startMonitoringSignificantLocationChanges];
+        
+//        isAcquiringStationaryLocation = YES;
+               [self stopUpdatingLocation];
+               
+               MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:locationManager.location];
+               stationaryLocation.radius = _config.stationaryRadius;
+               stationaryLocation.time = stationarySince;
+               [self startMonitoringStationaryRegion:stationaryLocation];
     }
 }
 
