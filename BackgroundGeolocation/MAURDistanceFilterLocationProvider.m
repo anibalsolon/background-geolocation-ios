@@ -33,7 +33,6 @@ enum {
 
 @implementation MAURDistanceFilterLocationProvider {
     BOOL isUpdatingLocation;
-    BOOL isAcquiringStationaryLocation;
     BOOL isAcquiringSpeed;
     BOOL isStarted;
     
@@ -56,7 +55,6 @@ enum {
     
     if (self) {
         isUpdatingLocation = NO;
-        isAcquiringStationaryLocation = NO;
         isAcquiringSpeed = NO;
         stationaryRegion = nil;
         isStarted = NO;
@@ -158,7 +156,6 @@ enum {
     DDLogInfo(@"%@ stop", TAG);
     
     [self stopUpdatingLocation];
-    [self stopMonitoringSignificantLocationChanges];
     [self stopMonitoringForRegion];
 
     isStarted = NO;
@@ -182,10 +179,9 @@ enum {
     
     if (operationMode == MAURForegroundMode || !_config.saveBatteryOnBackground) {
         isAcquiringSpeed = YES;
-        isAcquiringStationaryLocation = NO;
+
         [self stopMonitoringForRegion];
-        [self stopMonitoringSignificantLocationChanges];
-        
+
         aquireStartTime = [NSDate date];
         
         // Crank up the GPS power temporarily to get a good fix on our current location
@@ -196,20 +192,15 @@ enum {
         
     } else if (operationMode == MAURBackgroundMode) {
         isAcquiringSpeed = NO;
-        //isAcquiringStationaryLocation = YES;
-        //[self startMonitoringSignificantLocationChanges];
-        
+
         [self stopUpdatingLocation];
-        //isAcquiringStationaryLocation = YES;
 
         MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:locationManager.location];
         stationaryLocation.radius = _config.stationaryRadius;
         stationaryLocation.time = stationarySince;
         [self startMonitoringStationaryRegion:stationaryLocation];
-        
     }
-    
-    
+
 }
 
 - (void) locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
@@ -227,7 +218,7 @@ enum {
     }
     
     if (actAsInMode == MAURBackgroundMode) {
-        if (!isAcquiringStationaryLocation && !stationaryRegion) {
+        if (!stationaryRegion) {
             // Perhaps our GPS signal was interupted, re-acquire a stationaryLocation now.
             [self switchMode:operationMode];
         }
@@ -261,29 +252,7 @@ enum {
     }
     
     // test the measurement to see if it is more accurate than the previous measurement
-    if (isAcquiringStationaryLocation) {
-        DDLogDebug(@"%@ acquiring stationary location, accuracy: %@", TAG, bestLocation.accuracy);
-        if ([_config isDebugging]) {
-            AudioServicesPlaySystemSound (acquiringLocationSound);
-        }
-        
-        if ([bestLocation.accuracy doubleValue] <= [_config.desiredAccuracy doubleValue]) {
-            DDLogDebug(@"%@ found most accurate stationary before timeout", TAG);
-        } else if (-[aquireStartTime timeIntervalSinceNow] < maxLocationWaitTimeInSeconds) {
-            // we still have time to aquire better location
-            return;
-        }
-        
-        isAcquiringStationaryLocation = NO;
-        [self stopUpdatingLocation]; //saving power while monitoring region
-        
-        MAURLocation *stationaryLocation = [bestLocation copy];
-        stationaryLocation.radius = _config.stationaryRadius;
-        stationaryLocation.time = stationarySince;
-        [self startMonitoringStationaryRegion:stationaryLocation];
-        // fire onStationary @event for Javascript.
-        [super.delegate onStationaryChanged:stationaryLocation];
-    } else if (isAcquiringSpeed) {
+    if (isAcquiringSpeed) {
         if ([_config isDebugging]) {
             AudioServicesPlaySystemSound (acquiringLocationSound);
         }
@@ -337,15 +306,12 @@ enum {
         AudioServicesPlaySystemSound (exitRegionSound);
         [self notify:@"Exit stationary region"];
     }
-    //[self switchMode:operationMode];
-    
     
     MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:manager.location];
     stationaryLocation.radius = _config.stationaryRadius;
     stationaryLocation.time = [NSDate date];
     [self startMonitoringStationaryRegion:stationaryLocation];
-    // fire onStationary @event for Javascript.
-//    [super.delegate onStationaryChanged:stationaryLocation];
+
     [super.delegate onLocationChanged:stationaryLocation];
 }
 
@@ -445,26 +411,13 @@ enum {
 - (void) onTerminate
 {
     if (isStarted && !_config.stopOnTerminate) {
-        //[locationManager startMonitoringSignificantLocationChanges];
-        
-//        isAcquiringStationaryLocation = YES;
-               [self stopUpdatingLocation];
-               
-               MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:locationManager.location];
-               stationaryLocation.radius = _config.stationaryRadius;
-               stationaryLocation.time = stationarySince;
-               [self startMonitoringStationaryRegion:stationaryLocation];
+       [self stopUpdatingLocation];
+
+       MAURLocation *stationaryLocation = [MAURLocation fromCLLocation:locationManager.location];
+       stationaryLocation.radius = _config.stationaryRadius;
+       stationaryLocation.time = stationarySince;
+       [self startMonitoringStationaryRegion:stationaryLocation];
     }
-}
-
-- (void) startMonitoringSignificantLocationChanges
-{
-    [locationManager startMonitoringSignificantLocationChanges];
-}
-
-- (void) stopMonitoringSignificantLocationChanges
-{
-    [locationManager stopMonitoringSignificantLocationChanges];
 }
 
 /**
