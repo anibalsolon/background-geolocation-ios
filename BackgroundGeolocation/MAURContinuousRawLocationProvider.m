@@ -1,54 +1,41 @@
 //
-//  MAURDistanceFilterLocationProvider.m
+//  MAURContinuousRawLocationProvider.m
 //  BackgroundGeolocation
 //
-//  Created by Marian Hello on 14/09/2016.
-//  Copyright © 2016 mauron85. All rights reserved.
+//  Created by Rob Visentin on 6/24/20.
 //
 
-#import "MAURDistanceFilterLocationProvider.h"
+#import "MAURContinuousRawLocationProvider.h"
 #import "MAURLogging.h"
 
-#define SYSTEM_VERSION_EQUAL_TO(v)                  ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedSame)
-#define SYSTEM_VERSION_GREATER_THAN(v)              ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedDescending)
 #define SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(v)  ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] != NSOrderedAscending)
-#define SYSTEM_VERSION_LESS_THAN(v)                 ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] == NSOrderedAscending)
-#define SYSTEM_VERSION_LESS_THAN_OR_EQUAL_TO(v)     ([[[UIDevice currentDevice] systemVersion] compare:v options:NSNumericSearch] != NSOrderedDescending)
 
 #define LOCATION_DENIED         "User denied use of location services."
 #define LOCATION_RESTRICTED     "Application's use of location services is restricted."
 #define LOCATION_NOT_DETERMINED "User undecided on application's use of location services."
 
-static NSString * const TAG = @"DistanceFilterLocationProvider";
+static NSString * const TAG = @"ContinuousRawLocationProvider";
 static NSString * const Domain = @"com.marianhello";
 
-
 enum {
-    maxLocationWaitTimeInSeconds = 15,
     maxLocationAgeInSeconds = 30
 };
 
-@interface MAURDistanceFilterLocationProvider () <CLLocationManagerDelegate>
+@interface MAURContinuousRawLocationProvider () <CLLocationManagerDelegate>
 @end
 
-@implementation MAURDistanceFilterLocationProvider {
+@implementation MAURContinuousRawLocationProvider {
     BOOL isUpdatingLocation;
-    BOOL isAcquiringStationaryLocation;
-    BOOL isAcquiringSpeed;
     BOOL isStarted;
 
-    CLCircularRegion *stationaryRegion;
-    NSDate *stationarySince;
-
     MAUROperationalMode operationMode;
-    NSDate *aquireStartTime;
 
     CLLocationManager *locationManager;
+    CLCircularRegion *monitoredRegion;
 
     // configurable options
     MAURConfig *_config;
 }
-
 
 - (instancetype) init
 {
@@ -56,9 +43,7 @@ enum {
 
     if (self) {
         isUpdatingLocation = NO;
-        isAcquiringStationaryLocation = NO;
-        isAcquiringSpeed = NO;
-        stationaryRegion = nil;
+        monitoredRegion = nil;
         isStarted = NO;
     }
 
@@ -69,18 +54,13 @@ enum {
     locationManager = [[CLLocationManager alloc] init];
 
     if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"9.0")) {
-        DDLogDebug(@"%@ iOS9 detected", TAG);
+        DDLogDebug(@"%@ >= iOS9 detected", TAG);
         locationManager.allowsBackgroundLocationUpdates = YES;
     }
 
     locationManager.delegate = self;
 }
 
-/**
- * configure provider
- * @param {Config} configuration
- * @param {NSError} optional error
- */
 - (BOOL) onConfigure:(MAURConfig*)config error:(NSError * __autoreleasing *)outError
 {
     DDLogVerbose(@"%@ configure", TAG);
@@ -158,8 +138,8 @@ enum {
     DDLogInfo(@"%@ stop", TAG);
 
     [self stopUpdatingLocation];
+    [self stopRegionMonitoring];
     [self stopMonitoringSignificantLocationChanges];
-    [self stopMonitoringForRegion];
 
     isStarted = NO;
 
@@ -180,47 +160,36 @@ enum {
 
     operationMode = mode;
 
-    if (operationMode == MAURForegroundMode || !_config.saveBatteryOnBackground) {
-        isAcquiringSpeed = YES;
-        isAcquiringStationaryLocation = NO;
-        [self stopMonitoringForRegion];
+    if (operationMode == MAURForegroundMode) {
         [self stopMonitoringSignificantLocationChanges];
+        [self stopRegionMonitoring];
     } else if (operationMode == MAURBackgroundMode) {
-        isAcquiringSpeed = NO;
-        isAcquiringStationaryLocation = YES;
         [self startMonitoringSignificantLocationChanges];
+        [self startRegionMonitoring];
     }
 
-    aquireStartTime = [NSDate date];
-
-    // Crank up the GPS power temporarily to get a good fix on our current location
-    [self stopUpdatingLocation];
-    locationManager.distanceFilter = kCLDistanceFilterNone;
-    locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation;
-    [self startUpdatingLocation];
+    if (operationMode == MAURForegroundMode || !_config.saveBatteryOnBackground) {
+        [self startUpdatingLocation];
+    } else {
+        [self stopUpdatingLocation];
+    }
 }
 
 - (void) locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
 {
     DDLogDebug(@"%@ didUpdateLocations (operationMode: %lu)", TAG, (unsigned long)operationMode);
 
-    MAUROperationalMode actAsInMode = operationMode;
-
-    if (actAsInMode == MAURBackgroundMode) {
-        if ([_config saveBatteryOnBackground] == NO) actAsInMode = MAURForegroundMode;
+    if (operationMode == MAURForegroundMode || !_config.saveBatteryOnBackground) {
+        [self startUpdatingLocation];
     }
 
-    if (actAsInMode == MAURForegroundMode) {
-        if (!isUpdatingLocation) [self startUpdatingLocation];
-    }
+    if (operationMode == MAURBackgroundMode) {
+        [self startMonitoringSignificantLocationChanges];
 
-    if (actAsInMode == MAURBackgroundMode) {
-        if (!isAcquiringStationaryLocation && !stationaryRegion) {
-            // Perhaps our GPS signal was interupted, re-acquire a stationaryLocation now.
-            [self switchMode:operationMode];
+        if (monitoredRegion == nil) {
+            [self startRegionMonitoring];
         }
     }
-
 
     MAURLocation *bestLocation = nil;
     for (CLLocation *location in locations) {
@@ -228,7 +197,6 @@ enum {
 
         // test the age of the location measurement to determine if the measurement is cached
         // in most cases you will not want to rely on cached measurements
-        DDLogDebug(@"Location age %f", [bgloc locationAge]);
         if ([bgloc locationAge] > maxLocationAgeInSeconds || ![bgloc hasAccuracy] || ![bgloc hasTime]) {
             continue;
         }
@@ -244,88 +212,33 @@ enum {
         }
     }
 
-    if (bestLocation == nil) {
-        return;
+    if (bestLocation != nil && monitoredRegion != nil && ![monitoredRegion containsCoordinate:bestLocation.coordinate]) {
+        [self startRegionMonitoring];
     }
 
-    // test the measurement to see if it is more accurate than the previous measurement
-    if (isAcquiringStationaryLocation) {
-        DDLogDebug(@"%@ acquiring stationary location, accuracy: %@", TAG, bestLocation.accuracy);
-        if ([_config isDebugging]) {
-            AudioServicesPlaySystemSound (acquiringLocationSound);
-        }
-
-        if ([bestLocation.accuracy doubleValue] <= [_config.desiredAccuracy doubleValue]) {
-            DDLogDebug(@"%@ found most accurate stationary before timeout", TAG);
-        } else if (-[aquireStartTime timeIntervalSinceNow] < maxLocationWaitTimeInSeconds) {
-            // we still have time to aquire better location
-            return;
-        }
-
-        isAcquiringStationaryLocation = NO;
-        [self stopUpdatingLocation]; //saving power while monitoring region
-
-        MAURLocation *stationaryLocation = [bestLocation copy];
-        stationaryLocation.radius = _config.stationaryRadius;
-        stationaryLocation.time = stationarySince;
-        [self startMonitoringStationaryRegion:stationaryLocation];
-        // fire onStationary @event for Javascript.
-        [super.delegate onStationaryChanged:stationaryLocation];
-    } else if (isAcquiringSpeed) {
-        if ([_config isDebugging]) {
-            AudioServicesPlaySystemSound (acquiringLocationSound);
-        }
-
-        if ([bestLocation.accuracy doubleValue] <= [_config.desiredAccuracy doubleValue]) {
-            DDLogDebug(@"%@ found most accurate location before timeout", TAG);
-        } else if (-[aquireStartTime timeIntervalSinceNow] < maxLocationWaitTimeInSeconds) {
-            // we still have time to aquire better location
-            return;
-        }
-
-        if ([_config isDebugging]) {
-            [self notify:@"Aggressive monitoring engaged"];
-        }
-
-        // We should have a good sample for speed now, power down our GPS as configured by user.
-        isAcquiringSpeed = NO;
-        locationManager.desiredAccuracy = _config.desiredAccuracy.integerValue;
-        locationManager.distanceFilter = [self calculateDistanceFilter:[bestLocation.speed floatValue]];
-        [self startUpdatingLocation];
-
-    } else if (actAsInMode == MAURForegroundMode) {
-        // Adjust distanceFilter incrementally based upon current speed
-        float newDistanceFilter = [self calculateDistanceFilter:[bestLocation.speed floatValue]];
-        if (newDistanceFilter != locationManager.distanceFilter) {
-            DDLogInfo(@"%@ updated distanceFilter, new: %f, old: %f", TAG, newDistanceFilter, locationManager.distanceFilter);
-            locationManager.distanceFilter = newDistanceFilter;
-            [self startUpdatingLocation];
-        }
-    } else if ([self locationIsBeyondStationaryRegion:bestLocation]) {
-        if ([_config isDebugging]) {
-            [self notify:@"Manual stationary exit-detection"];
-        }
-        [self switchMode:operationMode];
+    if (bestLocation != nil) {
+        [super.delegate onLocationChanged:bestLocation];
     }
-
-    [super.delegate onLocationChanged:bestLocation];
 }
 
-/**
- * Called when user exits their stationary radius (ie: they walked ~50m away from their last recorded location.
- *
- */
-- (void) locationManager:(CLLocationManager *)manager didExitRegion:(CLCircularRegion *)region
+- (void) locationManager:(CLLocationManager *)manager didExitRegion:(CLRegion *)region
 {
-    CLLocationDistance radius = [region radius];
-    CLLocationCoordinate2D coordinate = [region center];
+    CLLocationDistance radius = [monitoredRegion radius];
+    CLLocationCoordinate2D coordinate = [monitoredRegion center];
 
     DDLogDebug(@"%@ didExitRegion {%f,%f,%f}", TAG, coordinate.latitude, coordinate.longitude, radius);
     if ([_config isDebugging]) {
         AudioServicesPlaySystemSound (exitRegionSound);
         [self notify:@"Exit stationary region"];
     }
-    [self switchMode:operationMode];
+
+    MAURLocation *location = [MAURLocation fromCLLocation:manager.location];
+    location.radius = [NSNumber numberWithDouble:radius];
+    location.time = [NSDate date];
+
+    [self startRegionMonitoring];
+
+    [super.delegate onLocationChanged:location];
 }
 
 - (void) locationManagerDidPauseLocationUpdates:(CLLocationManager *)manager
@@ -383,6 +296,8 @@ enum {
         [self notify:[NSString stringWithFormat:@"Authorization status changed %u", status]];
     }
 
+    [self switchMode:operationMode];
+
     switch(status) {
         case kCLAuthorizationStatusRestricted:
         case kCLAuthorizationStatusDenied:
@@ -424,7 +339,42 @@ enum {
 - (void) onTerminate
 {
     if (isStarted && !_config.stopOnTerminate) {
-        [locationManager startMonitoringSignificantLocationChanges];
+        [self stopUpdatingLocation];
+        [self startMonitoringSignificantLocationChanges];
+        [self startRegionMonitoring];
+    }
+}
+
+/**
+ * Creates a new circle around user and region-monitors it for exit
+ */
+- (void) startRegionMonitoring {
+    CLLocation *location = locationManager.location;
+
+    if (location == nil) {
+        return;
+    }
+
+    CLLocationCoordinate2D coord = [location coordinate];
+    DDLogDebug(@"%@ startRegionMonitoring {%f,%f,%@}", TAG, coord.latitude, coord.longitude, _config.stationaryRadius);
+
+    if ([_config isDebugging]) {
+        AudioServicesPlaySystemSound (acquiredLocationSound);
+        [self notify:[NSString stringWithFormat:@"Monitoring region {%f,%f,%@}", coord.latitude, coord.longitude, _config.stationaryRadius]];
+    }
+
+    [self stopRegionMonitoring];
+
+    monitoredRegion = [[CLCircularRegion alloc] initWithCenter:coord radius:_config.stationaryRadius.integerValue identifier:@"ContinuousRawLocation Region"];
+
+    [locationManager startMonitoringForRegion:monitoredRegion];
+}
+
+- (void) stopRegionMonitoring
+{
+    if (monitoredRegion != nil) {
+        [locationManager stopMonitoringForRegion:monitoredRegion];
+        monitoredRegion = nil;
     }
 }
 
@@ -438,64 +388,6 @@ enum {
     [locationManager stopMonitoringSignificantLocationChanges];
 }
 
-/**
- * Creates a new circle around user and region-monitors it for exit
- */
-- (void) startMonitoringStationaryRegion:(MAURLocation*)location {
-    CLLocationCoordinate2D coord = [location coordinate];
-    DDLogDebug(@"%@ startMonitoringStationaryRegion {%f,%f,%@}", TAG, coord.latitude, coord.longitude, _config.stationaryRadius);
-
-    if ([_config isDebugging]) {
-        AudioServicesPlaySystemSound (acquiredLocationSound);
-        [self notify:[NSString stringWithFormat:@"Monitoring region {%f,%f,%@}", location.coordinate.latitude, location.coordinate.longitude, _config.stationaryRadius]];
-    }
-
-    [self stopMonitoringForRegion];
-    stationaryRegion = [[CLCircularRegion alloc] initWithCenter: coord radius:_config.stationaryRadius.integerValue identifier:@"DistanceFilterProvider stationary region"];
-    stationaryRegion.notifyOnExit = YES;
-    [locationManager startMonitoringForRegion:stationaryRegion];
-    stationarySince = [NSDate date];
-}
-
-- (void) stopMonitoringForRegion
-{
-    if (stationaryRegion != nil) {
-        [locationManager stopMonitoringForRegion:stationaryRegion];
-        stationaryRegion = nil;
-        stationarySince = nil;
-    }
-}
-
-/**
- * Calculates distanceFilter by rounding speed to nearest 5 and multiplying by 10.  Clamped at 1km max.
- */
-- (float) calculateDistanceFilter:(float)speed
-{
-    float newDistanceFilter = _config.distanceFilter.integerValue;
-    if (speed < 100) {
-        // (rounded-speed-to-nearest-5) / 2)^2
-        // eg 5.2 becomes (5/2)^2
-        newDistanceFilter = pow((5.0 * floorf(fabsf(speed) / 5.0 + 0.5f)), 2) + _config.distanceFilter.integerValue;
-    }
-    return (newDistanceFilter < 1000) ? newDistanceFilter : 1000;
-}
-
-/**
- * Manual stationary location his-testing.  This seems to help stationary-exit detection in some places where the automatic geo-fencing doesn't
- */
-- (BOOL) locationIsBeyondStationaryRegion:(MAURLocation*)location
-{
-    CLLocationCoordinate2D regionCenter = [stationaryRegion center];
-    BOOL containsCoordinate = [stationaryRegion containsCoordinate:[location coordinate]];
-
-    DDLogVerbose(@"%@ location {%@,%@} region {%f,%f,%f} contains: %d",
-                 TAG,
-                 location.latitude, location.longitude, regionCenter.latitude, regionCenter.longitude,
-                 [stationaryRegion radius], containsCoordinate);
-
-    return !containsCoordinate;
-}
-
 - (void) notify:(NSString*)message
 {
     [super notify:message];
@@ -506,9 +398,5 @@ enum {
     [self onStop:nil];
 }
 
-- (void) dealloc
-{
-    //    locationController.delegate = nil;
-}
-
 @end
+

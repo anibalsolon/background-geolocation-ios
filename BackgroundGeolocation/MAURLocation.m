@@ -214,7 +214,7 @@ MAURLocation* _location;
     if ([key isEqualToString:@"@recordedAt"]) {
         return [NSNumber numberWithDouble:([recordedAt timeIntervalSince1970] * 1000)];
     }
-    
+
     return nil;
 }
 
@@ -227,7 +227,7 @@ MAURLocation* _location;
         MAURLocationMapper *mapper = [MAURLocationMapper map:self];
         return [mapper withDictionary:locationTemplate];
     }
-    
+
     return [self toDictionary];
 }
 
@@ -310,14 +310,12 @@ MAURLocation* _location;
 
 - (BOOL) hasAccuracy
 {
-    if (accuracy == nil || accuracy < 0) return NO;
-    return YES;
+    return (accuracy != nil && accuracy >= 0);
 }
 
 - (BOOL) hasTime
 {
-    if (time != nil && [time timeIntervalSinceNow] > MAX_SECONDS_FROM_NOW) return NO;
-    return YES;
+    return (time != nil && [time timeIntervalSinceNow] <= MAX_SECONDS_FROM_NOW);
 }
 
 - (NSString *) description

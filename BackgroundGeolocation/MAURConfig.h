@@ -14,7 +14,8 @@
 enum {
     DISTANCE_FILTER_PROVIDER = 0,
     ACTIVITY_PROVIDER = 1,
-    RAW_PROVIDER = 2
+    RAW_PROVIDER = 2,
+    CONTINUOUS_RAW_PROVIDER = 3,
 };
 
 @interface MAURConfig : NSObject <NSCopying>
