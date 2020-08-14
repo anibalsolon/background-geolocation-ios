@@ -44,11 +44,12 @@
 
 - (void)start
 {
-    if (self.allowsBackgroundLocationUpdates) {
-        if ([self.locationManager respondsToSelector:@selector(setAllowsBackgroundLocationUpdates:)]) {
-            [self.locationManager setAllowsBackgroundLocationUpdates:YES];
-        }
-    }
+    [self.locationManager setAllowsBackgroundLocationUpdates:YES];
+    // if (self.allowsBackgroundLocationUpdates) {
+    //     if ([self.locationManager respondsToSelector:@selector(setAllowsBackgroundLocationUpdates:)]) {
+            
+    //     }
+    // }
     [self.locationManager startUpdatingLocation];
     
     if (self.locationType == LocationManagerTypeNone) {
@@ -60,11 +61,12 @@
 
 - (void)startSignificant
 {
-    if (self.allowsBackgroundLocationUpdates) {
-        if ([self.significantLocationManager respondsToSelector:@selector(setAllowsBackgroundLocationUpdates:)]) {
-            [self.significantLocationManager setAllowsBackgroundLocationUpdates:YES];
-        }
-    }
+    [self.significantLocationManager setAllowsBackgroundLocationUpdates:YES];
+    // if (self.allowsBackgroundLocationUpdates) {
+    //     if ([self.significantLocationManager respondsToSelector:@selector(setAllowsBackgroundLocationUpdates:)]) {
+    //         [self.significantLocationManager setAllowsBackgroundLocationUpdates:YES];
+    //     }
+    // }
     
     [self.significantLocationManager startMonitoringSignificantLocationChanges];
     
