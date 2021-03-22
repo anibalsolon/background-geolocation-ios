@@ -43,7 +43,6 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
 @property (strong, nonatomic) CMMotionManager *motionManager;
 @property (strong, nonatomic) CMMotionActivityManager *motionActivityManager;
 
-
 @end
 
 @implementation SOMotionDetector
@@ -98,7 +97,9 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
                                              withHandler:^(CMAccelerometerData *accelerometerData, NSError *error)
      {
          _acceleration = accelerometerData.acceleration;
-         [self calculateMotionType];
+        if (!self.useMotionDetectorOnly) {
+            [self calculateMotionType];
+        }
          dispatch_async(dispatch_get_main_queue(), ^{
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -132,19 +133,6 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
                     motionType = MotionTypeNotMoving;
                 } else {
                     motionType = MotionTypeUnknown;
-                }
-                
-                int confidence;
-                switch (activity.confidence) {
-                    case CMMotionActivityConfidenceLow:
-                        confidence = 20;
-                        break;
-                    case CMMotionActivityConfidenceMedium:
-                        confidence = 40;
-                        break;
-                    case CMMotionActivityConfidenceHigh:
-                        confidence = 80;
-                        break;
                 }
 
                 _motionActivity.motionType = motionType;
@@ -309,7 +297,9 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
         }
     });
 
-    [self calculateMotionType];
+    if (!self.useMotionDetectorOnly) {
+        [self calculateMotionType];
+    }
 }
 
 #pragma mark - LocationManager notification handler

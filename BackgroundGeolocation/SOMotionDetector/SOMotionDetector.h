@@ -76,6 +76,11 @@
 @property (nonatomic) double activityDetectionInterval;
 
 /**
+ * Controls whether whether additional motion calculation will be used for identifying a motion
+ */
+@property (nonatomic) BOOL useMotionDetectorOnly;
+
+/**
  *@param speed  The minimum speed value less than which will be considered as not moving state
  */
 - (void)setMinimumSpeed:(CGFloat)speed;
