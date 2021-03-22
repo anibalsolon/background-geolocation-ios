@@ -37,11 +37,11 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
 
 @property (strong, nonatomic) CLLocation *currentLocation;
 @property (nonatomic) SOMotionType previousMotionType;
+@property (nonatomic) int previousMotionConfidence;
 
 #pragma mark - Accelerometer manager
 @property (strong, nonatomic) CMMotionManager *motionManager;
 @property (strong, nonatomic) CMMotionActivityManager *motionActivityManager;
-
 
 @end
 
@@ -97,7 +97,9 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
                                              withHandler:^(CMAccelerometerData *accelerometerData, NSError *error)
      {
          _acceleration = accelerometerData.acceleration;
-         [self calculateMotionType];
+        if (!self.useMotionDetectorOnly) {
+            [self calculateMotionType];
+        }
          dispatch_async(dispatch_get_main_queue(), ^{
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -132,26 +134,16 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
                 } else {
                     motionType = MotionTypeUnknown;
                 }
-                
-                int confidence;
-                switch (activity.confidence) {
-                    case CMMotionActivityConfidenceLow:
-                        confidence = 20;
-                        break;
-                    case CMMotionActivityConfidenceMedium:
-                        confidence = 40;
-                        break;
-                    case CMMotionActivityConfidenceHigh:
-                        confidence = 80;
-                        break;
-                }
 
                 _motionActivity.motionType = motionType;
                 _motionActivity.confidence = activity.confidence;
                 
+                BOOL higherConfience = (motionType == self.previousMotionType && activity.confidence > self.previousMotionConfidence ? YES : NO);
+                
                 // If type was changed, then call delegate method
-                if (motionType != self.previousMotionType) {
+                if (motionType != self.previousMotionType || higherConfience) {
                     self.previousMotionType = motionType;
+                    self.previousMotionConfidence = activity.confidence;
                     if (self.delegate && [self.delegate respondsToSelector:@selector(motionDetector:activityTypeChanged:)]) {
                         [self.delegate motionDetector:self activityTypeChanged:self.motionActivity];
                     }
@@ -305,7 +297,9 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
         }
     });
 
-    [self calculateMotionType];
+    if (!self.useMotionDetectorOnly) {
+        [self calculateMotionType];
+    }
 }
 
 #pragma mark - LocationManager notification handler

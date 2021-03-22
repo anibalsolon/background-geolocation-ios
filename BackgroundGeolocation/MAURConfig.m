@@ -10,9 +10,9 @@
 #define isNull(value) (value == nil || value == (id)[NSNull null])
 #define isNotNull(value) (value != nil && value != (id)[NSNull null])
 
-@implementation MAURConfig 
+@implementation MAURConfig
 
-@synthesize stationaryRadius, distanceFilter, desiredAccuracy, _debug, activityType, activitiesInterval, _stopOnTerminate, url, syncUrl, syncThreshold, httpHeaders, _saveBatteryOnBackground, maxLocations, _pauseLocationUpdates, locationProvider, _template;
+@synthesize stationaryRadius, distanceFilter, desiredAccuracy, _debug, activityType, activitiesInterval, _stopOnTerminate, url, syncUrl, syncThreshold, httpHeaders, _saveBatteryOnBackground, maxLocations, _pauseLocationUpdates, locationProvider, _template, _useMotionDetectorOnly;
 
 -(instancetype) initWithDefaults {
     self = [super init];
@@ -33,6 +33,7 @@
     syncThreshold = [NSNumber numberWithInt:100];
     _pauseLocationUpdates = [NSNumber numberWithBool:NO];
     locationProvider = [NSNumber numberWithInt:DISTANCE_FILTER_PROVIDER];
+    _useMotionDetectorOnly = [NSNumber numberWithBool:NO];
 //    template =
     
     return self;
@@ -90,7 +91,9 @@
     if (config[@"postTemplate"] != nil) {
         instance._template = config[@"postTemplate"];
     }
-
+    if (config[@"useMotionDetectorOnly"] != nil) {
+        instance._useMotionDetectorOnly = config[@"useMotionDetectorOnly"];
+    }
     return instance;
 }
 
@@ -154,7 +157,10 @@
     if ([newConfig hasTemplate]) {
         merger._template = newConfig._template;
     }
-
+    if ([newConfig useMotionDetectorOnly]) {
+        merger._useMotionDetectorOnly = newConfig._useMotionDetectorOnly;
+    }
+    
     return merger;
 }
 
@@ -178,6 +184,7 @@
         copy._pauseLocationUpdates = _pauseLocationUpdates;
         copy.locationProvider = locationProvider;
         copy._template = _template;
+        copy._useMotionDetectorOnly = _useMotionDetectorOnly;
     }
     
     return copy;
@@ -358,6 +365,11 @@
 - (BOOL) pauseLocationUpdates
 {
     return _pauseLocationUpdates.boolValue;
+}
+
+- (BOOL) useMotionDetectorOnly
+{
+    return _useMotionDetectorOnly.boolValue;
 }
 
 - (CLActivityType) decodeActivityType

@@ -36,6 +36,7 @@ enum {
 @property NSNumber *_pauseLocationUpdates;
 @property NSNumber *locationProvider;
 @property NSObject *_template;
+@property NSNumber *_useMotionDetectorOnly;
 
 - (instancetype) initWithDefaults;
 + (instancetype) fromDictionary:(NSDictionary*)config;
@@ -64,6 +65,7 @@ enum {
 - (BOOL) stopOnTerminate;
 - (BOOL) saveBatteryOnBackground;
 - (BOOL) pauseLocationUpdates;
+- (BOOL) useMotionDetectorOnly;
 - (CLActivityType) decodeActivityType;
 - (NSInteger) decodeDesiredAccuracy;
 - (NSString*) getHttpHeadersAsString:(NSError * __autoreleasing *)outError;
