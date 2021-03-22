@@ -37,6 +37,7 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
 
 @property (strong, nonatomic) CLLocation *currentLocation;
 @property (nonatomic) SOMotionType previousMotionType;
+@property (nonatomic) int previousMotionConfidence;
 
 #pragma mark - Accelerometer manager
 @property (strong, nonatomic) CMMotionManager *motionManager;
@@ -149,9 +150,12 @@ CGFloat kMinimumRunningAcceleration = 3.5f;
                 _motionActivity.motionType = motionType;
                 _motionActivity.confidence = activity.confidence;
                 
+                BOOL higherConfience = (motionType == self.previousMotionType && activity.confidence > self.previousMotionConfidence ? YES : NO);
+                
                 // If type was changed, then call delegate method
-                if (motionType != self.previousMotionType) {
+                if (motionType != self.previousMotionType || higherConfience) {
                     self.previousMotionType = motionType;
+                    self.previousMotionConfidence = activity.confidence;
                     if (self.delegate && [self.delegate respondsToSelector:@selector(motionDetector:activityTypeChanged:)]) {
                         [self.delegate motionDetector:self activityTypeChanged:self.motionActivity];
                     }
