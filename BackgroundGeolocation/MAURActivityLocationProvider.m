@@ -65,7 +65,7 @@ static NSString * const Domain = @"com.marianhello";
     locationManager.distanceFilter = config.distanceFilter.integerValue; // meters
     locationManager.desiredAccuracy = [config decodeDesiredAccuracy];
     [SOMotionDetector sharedInstance].activityDetectionInterval = config.activitiesInterval.intValue / 1000;
-    
+    [SOMotionDetector sharedInstance].useMotionDetectorOnly = [config useMotionDetectorOnly];
     return YES;
 }
 
